@@ -20,12 +20,13 @@ const $ = id => document.getElementById(id);
 const palette = ["#a99bff","#f5d47d","#f1a0d2","#83c7ff","#78d9b1","#f2a783","#b3a8ff","#8ad5dd"];
 let toastTimer;
 function notify(message){const t=$("toast");t.textContent=message;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2800)}
+function splitGenres(value){return String(value ?? "").split(/[|,;]/).map(g=>g.trim()).filter(Boolean)}
 function cleanMovieRows(rows){
   return rows.map(row=>{
     const normalized={}; Object.keys(row).forEach(k=>normalized[String(k).trim().toLowerCase()]=row[k]);
     const title=String(normalized.title??normalized.movie??normalized.name??"").trim();
     const rating=Number(normalized.rating??normalized.score);
-    const genres=String(normalized.genres??normalized.genre??"Unknown").trim()||"Unknown";
+    const genres=splitGenres(normalized.genres??normalized.genre).join("|") || "Unknown";
     return {title,rating,genres};
   }).filter(m=>m.title && Number.isFinite(m.rating) && m.rating>=0 && m.rating<=10);
 }
@@ -46,7 +47,7 @@ function parseCSV(text){
 }
 function genresList(){
   const counts={};
-  movies.forEach(m=>String(m.genres||"Unknown").split(/[|;]/).join(",").split(",").map(g=>g.trim()).filter(Boolean).forEach(g=>counts[g]=(counts[g]||0)+1));
+  movies.forEach(m=>splitGenres(m.genres||"Unknown").forEach(g=>counts[g]=(counts[g]||0)+1));
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
 }
 function updateMetrics(){
@@ -61,7 +62,8 @@ function updateMetrics(){
 function drawRatingChart(){
   const canvas=$("ratingChart"),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
   canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);
-  const ctx=canvas.getContext("2d");ctx.scale(dpr,dpr);
+  const ctx=canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
   const w=rect.width,h=rect.height,p={l:28,r:10,t:12,b:28},cw=w-p.l-p.r,ch=h-p.t-p.b;
   ctx.clearRect(0,0,w,h);
   const bins=Array(10).fill(0);movies.forEach(m=>{const idx=Math.min(9,Math.floor(m.rating));if(idx>=0)bins[idx]++});
@@ -71,7 +73,7 @@ function drawRatingChart(){
   const gap=7,bw=(cw-gap*9)/10;
   bins.forEach((n,i)=>{const bh=ch*n/max,x=p.l+i*(bw+gap),y=p.t+ch-bh;const grad=ctx.createLinearGradient(0,y,0,p.t+ch);grad.addColorStop(0,"#b4a7ff");grad.addColorStop(1,"#7565dc");ctx.fillStyle=grad;roundRect(ctx,x,y,bw,Math.max(0,bh),4);ctx.fillStyle="#77839b";ctx.textAlign="center";ctx.textBaseline="top";ctx.fillText(String(i),x+bw/2,p.t+ch+8)});
 }
-function getGenreBreadth(movie){return new Set(String(movie.genres||"Unknown").split(/[|,;]/).map(g=>g.trim()).filter(Boolean)).size}
+function getGenreBreadth(movie){return new Set(splitGenres(movie.genres||"Unknown")).size}
 function clusterMovies(items,k=3){
   if(!items.length)return [];
   const points=items.map(m=>({movie:m,x:m.rating,y:getGenreBreadth(m)}));
@@ -90,9 +92,10 @@ function drawClusterChart(){
   canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);
   const w=rect.width,h=rect.height,p={l:37,r:14,t:15,b:31},cw=w-p.l-p.r,ch=h-p.t-p.b;ctx.clearRect(0,0,w,h);
   const points=clusterMovies(movies),colors=["#a99bff","#f5d47d","#83c7ff"];
-  for(let i=0;i<=4;i++){const y=p.t+ch*i/4;ctx.strokeStyle="#293146";ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke();ctx.fillStyle="#738099";ctx.font='10px "DM Sans", sans-serif';ctx.textAlign="right";ctx.fillText(String(Math.round(4-i)),p.l-8,y+3)}
+  const maxGenreCount=Math.max(1, ...points.map(p=>p.y));
+  for(let i=0;i<=4;i++){const y=p.t+ch*i/4;ctx.strokeStyle="#293146";ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke();ctx.fillStyle="#738099";ctx.font='10px "DM Sans", sans-serif';ctx.textAlign="right";ctx.fillText(String(Math.round(maxGenreCount*(1-i/4))),p.l-8,y+3)}
   for(let i=0;i<=5;i++){const x=p.l+cw*i/5;ctx.fillStyle="#738099";ctx.textAlign="center";ctx.fillText((i*2).toFixed(0),x,h-9)}
-  points.forEach(pnt=>{const x=p.l+(pnt.x/10)*cw,y=p.t+ch-(pnt.y/4)*ch;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fillStyle=colors[pnt.cluster%colors.length];ctx.globalAlpha=.88;ctx.fill();ctx.globalAlpha=1;ctx.strokeStyle="#101522";ctx.lineWidth=1;ctx.stroke()});
+  points.forEach(pnt=>{const x=p.l+(pnt.x/10)*cw,y=p.t+ch-(pnt.y/maxGenreCount)*ch;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fillStyle=colors[pnt.cluster%colors.length];ctx.globalAlpha=.88;ctx.fill();ctx.globalAlpha=1;ctx.strokeStyle="#101522";ctx.lineWidth=1;ctx.stroke()});
   ctx.fillStyle="#8d97ad";ctx.textAlign="center";ctx.fillText("Rating (0–10)",p.l+cw/2,h-1);
   const counts=[0,1,2].map(i=>points.filter(pnt=>pnt.cluster===i).length).filter(n=>n>0);
   $("clusterInsight").textContent=points.length?`K-means found ${counts.length} preference groups across ${points.length} movies. Higher genre breadth means a title spans more listed genres.`:"Import valid movie ratings to view clusters.";

@@ -28,4 +28,9 @@ def load_movies(path: str | Path) -> pd.DataFrame:
     df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
     df = df.dropna(subset=["title", "rating"])
     df = df[df["title"] != ""]
+    df = df[df["rating"].between(0, 10, inclusive="both")]
+
+    if "genres" in df.columns:
+        df["genres"] = df["genres"].fillna("").astype("string").str.strip()
+
     return df.reset_index(drop=True)

@@ -1,9 +1,18 @@
 """Chart creation helpers for movie analysis."""
+import re
 from pathlib import Path
+
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+
+def _split_genres(value: object) -> list[str]:
+    """Split a genre field across common separators and trim whitespace."""
+    if pd.isna(value):
+        return []
+    return [part.strip() for part in re.split(r"[|,;]", str(value)) if part.strip()]
 
 
 def save_rating_distribution(movies: pd.DataFrame, output: str | Path) -> None:
@@ -36,9 +45,13 @@ def save_genre_counts(movies: pd.DataFrame, output: str | Path, limit: int = 12)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     genres = (
-        movies["genres"].dropna().astype(str)
-        .str.split(r"[|,]")
-        .explode().str.strip()
+        movies["genres"]
+        .fillna("")
+        .map(_split_genres)
+        .explode()
+        .dropna()
+        .astype(str)
+        .str.strip()
     )
     genres = genres[genres != ""].value_counts().head(limit).sort_values()
     fig, ax = plt.subplots(figsize=(8, max(4, 0.4 * len(genres))))
@@ -65,7 +78,7 @@ def save_cluster_visualization(movies: pd.DataFrame, output: str | Path, cluster
     frame = frame.dropna(subset=["rating"]).reset_index(drop=True)
     if "genres" in frame.columns:
         frame["genre_breadth"] = frame["genres"].fillna("Unknown").astype(str).apply(
-            lambda value: len({part.strip() for part in __import__("re").split(r"[|,;]", value) if part.strip()})
+            lambda value: len({_part.strip() for _part in _split_genres(value)})
         )
     else:
         frame["genre_breadth"] = 1
